@@ -7,11 +7,15 @@ import music
 
 cogs = [music]
 client = commands.Bot(command_prefix='??', intents = discord.Intents.all(), activity = discord.Game(name="music I ??help"))
-client.remove_command("help")
+
+@client.event
+async def on_ready():
+  print("Bot is ready.")
 
 # Custom Help commands ------------------------------------------------------------------
+client.remove_command("help")
 
-@client.group(invoke_without_command=True, aliases=["h"])
+@client.group(invoke_without_command=True, aliases=[""])
 async def help(ctx):
   em = discord.Embed(title = "Help", description = "Use ??help <command> for extended info", color=0xF8C514)
   em.add_field(name = "Music", value = "remove,queue,play,pause,resume")
@@ -25,19 +29,21 @@ async def remove(ctx):
 
 @help.command()
 async def play(ctx):
-  em = discord.Embed(title = "play", description = "plays this song", color=0xF8C514)
-  em.add_field(name = "**Syntax**", value = "??play [link or words]")
+  em = discord.Embed(title = "play", description = "starts the queue", color=0xF8C514)
+  em.add_field(name = "**Syntax**", value = "??play")
   await ctx.send(embed = em)
 
 @help.command()
 async def queue(ctx):
   em = discord.Embed(title = "queue", description = "Adds this song to queue", color=0xF8C514)
-  em.add_field(name = "**Syntax**", value = "??queue [link or words]")
+  em.add_field(name = "**Syntax**", value = "??queue [link]")
   await ctx.send(embed = em)
 
-
+#-----------------------------------------------------------------------------------------
 for i in range(len(cogs)):
   cogs[i].setup(client)
 
 my_secret = os.environ['qwiootoken']
 client.run(my_secret)
+
+
