@@ -37,28 +37,22 @@ ffmpegopts = {
 
 ytdl = YoutubeDL(ytdlopts)
 
-# to avoid 429 too many requests
 class VoiceConnectionError(commands.CommandError):
     """Custom Exception class for connection errors."""
 
 class InvalidVoiceChannel(VoiceConnectionError):
     """Exception for cases of invalid Voice Channels."""
 
-class VoiceError(Exception):
-    pass
-
-class YTDLError(Exception):
-    pass
 
 class YTDLSource(discord.PCMVolumeTransformer):
 
     def __init__(self, source, *, data, requester):
         super().__init__(source)
         self.requester = requester
-
+       
         self.title = data.get('title')
         self.web_url = data.get('webpage_url')
-        self.duration = data.get('duration')
+        self.duration = self.parse_duration(int(data.get('duration')))
         self.thumbnail = data.get('thumbnail') 
 
     def __getitem__(self, item: str):
@@ -98,9 +92,26 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
         return cls(discord.FFmpegPCMAudio(data['url']), data=data, requester=requester)
 
+    @staticmethod
+    def parse_duration(duration: int):
+        minutes, seconds = divmod(duration, 60)
+        hours, minutes = divmod(minutes, 60)
+        days, hours = divmod(hours, 24)
 
-class MusicPlayer:
-   
+        duration = []
+        if days > 0:
+            duration.append('{} days'.format(days))
+        if hours > 0:
+            duration.append('{} hr'.format(hours))
+        if minutes > 0:
+            duration.append('{} min'.format(minutes))
+        if seconds > 0:
+            duration.append('{} sec'.format(seconds))
+
+        return ', '.join(duration)
+
+
+class MusicPlayer(commands.Cog):
     __slots__ = ('bot', '_guild', '_channel', 'voice_client', '_cog', 'queue', 'next', 'current', 'np', 'volume')
 
     def __init__(self, ctx):
@@ -129,15 +140,14 @@ class MusicPlayer:
             self.next.clear()
 
             try:
-                # Wait for the next song. If we timeout cancel the player and disconnect...
+                # Wait for the next song. If we timeout - cancel the player and disconnect
                 async with timeout(300): 
                     source = await self.queue.get()
             except asyncio.TimeoutError:
                 return self.destroy(self._guild)
 
             if not isinstance(source, YTDLSource):
-                # Source was probably a stream (not downloaded)
-                # So we should regather to prevent stream expiration
+                # regather to prevent stream expiration
                 try:
                     source = await YTDLSource.regather_stream(source, loop=self.bot.loop)
                 except Exception as e:
@@ -150,57 +160,21 @@ class MusicPlayer:
 
             self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))
             #await ctx.invoke(self.bot.get_command('nowplaying', query=""))
-            seconds = source.duration % (24 * 3600) 
-            hour = seconds // 3600
-            seconds %= 3600
-            minutes = seconds // 60
-            seconds %= 60
-            if hour > 0:
-                duration = "%dh %02dm %02ds" % (hour, minutes, seconds)
-            else:
-                duration = "%02dm %02ds" % (minutes, seconds)
-                
-            embed = discord.Embed(title="", description=f"[{source.title}]({source.web_url}) [{source.requester.mention}] | `{duration}`", color=0xF8C514)
+
+            
+            #await self.bot.invoke(self.bot.now_playing_)
+
+
+            embed = discord.Embed(title="", description=f"[{source.title}]({source.web_url}) [{source.requester.mention}] \n`{source.duration}`", color=0xF8C514)
 
             embed.set_author(icon_url=self.bot.user.avatar_url, name=f"Now Playing 🎶")
 
             embed.set_image(url=source.thumbnail)
+            await self._channel.send(embed=embed)
 
-            msg = await self._channel.send(embed=embed)
             await self.next.wait()
             source.cleanup()
             self.current = None
-            ''''
-            first_run = True
-            while True:
-              if first_run:
-                reactmoji = ["⏸","▶️"]
-                for react in reactmoji:
-                            await msg.add_reaction(react)
-        
-                def check_react(reaction, user):
-                        if reaction.message.id != msg.id:
-                            return False
-                        #if user != self.bot.message.author:
-                            #return False
-                        if str(reaction.emoji) not in reactmoji:
-                            return False
-                        return True
-                try:
-                        res, user = await self.bot.wait_for('reaction_add', check=check_react)
-                except asyncio.TimeoutError:
-                        return await msg.clear_reactions()
-
-                if '⏸' in str(res.emoji):
-                        print('<<paused>>')
-                       
-                        #self.voice_client.pause()
-                        
-                elif '▶️' in str(res.emoji):
-                        print('<<resumed>>')
-                        #self.voice_client.resume()
-            '''              
-           
            
     def destroy(self, guild):
         """Disconnect and cleanup the player."""
@@ -257,7 +231,7 @@ class Music(commands.Cog):
 
         return player
 
-    @commands.command(name='join', aliases=['connect', 'j'])
+    @commands.command(name='join', aliases=['connect', 'j'], invoke_without_subcommand=True)
     async def connect_(self, ctx, *, channel: discord.VoiceChannel=None):
         """Connect to voice.
         Parameters
@@ -304,16 +278,14 @@ class Music(commands.Cog):
             The song to search and retrieve using YTDL. This could be a simple search, an ID or URL.
         """
         await ctx.trigger_typing()
-
+        
         vc = ctx.voice_client
-
+        
         if not vc:
             await ctx.invoke(self.connect_)
 
         player = self.get_player(ctx)
 
-        # If download is False, source will be a dict which will be used later to regather the stream.
-        # If download is True, source will be a discord.FFmpegPCMAudio with a VolumeTransformer.
         source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop, download=False)
 
         await player.queue.put(source)
@@ -413,27 +385,20 @@ class Music(commands.Cog):
             embed = discord.Embed(title="", description="queue is empty", color=0xF8C514)
             return await ctx.send(embed=embed)
 
-        seconds = vc.source.duration % (24 * 3600) 
-        hour = seconds // 3600
-        seconds %= 3600
-        minutes = seconds // 60
-        seconds %= 60
-        if hour > 0:
-            duration = "%dh %02dm %02ds" % (hour, minutes, seconds)
-        else:
-            duration = "%02dm %02ds" % (minutes, seconds)
-
+       
         # Grabs the songs in the queue...
         upcoming = list(itertools.islice(player.queue._queue, 0, int(len(player.queue._queue))))
-        fmt = '\n'.join(f"`{(upcoming.index(_)) + 1}.` [{_['title']}]({_['webpage_url']}) | ` {duration} Requested by: {_['requester']}`\n" for _ in upcoming)
+
+        fmt = '\n'.join(f"`{(upcoming.index(_)) + 1}.` [{_['title']}]({_['webpage_url']}) | ` {vc.source.duration} Requested by: {_['requester']}`\n" for _ in upcoming)
         
-        fmt = f"\n__Now Playing__:\n[{vc.source.title}]({vc.source.web_url}) | ` {duration} Requested by: {vc.source.requester}`\n\n__Up Next:__\n" + fmt + f"\n**{len(upcoming)} songs in queue**"
+        fmt = f"\n__Now Playing__:\n[{vc.source.title}]({vc.source.web_url}) | ` {vc.source.duration} Requested by: {vc.source.requester}`\n\n__Up Next:__\n" + fmt + f"\n**{len(upcoming)} songs in queue**"
+
         embed = discord.Embed(title=f'Queue for {ctx.guild.name}', description=fmt, color=0xF8C514)
         embed.set_footer(text=f"{ctx.author.display_name}", icon_url=ctx.author.avatar_url)
 
         await ctx.send(embed=embed)
 
-    @commands.command(name='np', aliases=['song', 'current', 'currentsong', 'playing'])
+    @commands.command(name='np', aliases=['song', 'current', 'currentsong', 'playing'],invoke_without_command=True)
     async def now_playing_(self, ctx):
         """Display information about the currently playing song."""
         vc = ctx.voice_client
@@ -447,17 +412,8 @@ class Music(commands.Cog):
             embed = discord.Embed(title="", description="I am currently not playing anything", color=0xF8C514)
             return await ctx.send(embed=embed)
         
-        seconds = vc.source.duration % (24 * 3600) 
-        hour = seconds // 3600
-        seconds %= 3600
-        minutes = seconds // 60
-        seconds %= 60
-        if hour > 0:
-            duration = "%dh %02dm %02ds" % (hour, minutes, seconds)
-        else:
-            duration = "%02dm %02ds" % (minutes, seconds)
-        
-        embed = discord.Embed(title="", description=f"[{vc.source.title}]({vc.source.web_url}) [{vc.source.requester.mention}] | `{duration}`", color=0xF8C514)
+               
+        embed = discord.Embed(title="", description=f"[{vc.source.title}]({vc.source.web_url}) [{vc.source.requester.mention}]\n`{vc.source.duration}`", color=0xF8C514)
         embed.set_author(icon_url=self.bot.user.avatar_url, name=f"Now Playing 🎶")
         embed.set_image(url=vc.source.thumbnail)
         msg = await ctx.send(embed=embed)
@@ -465,7 +421,7 @@ class Music(commands.Cog):
         first_run = True
         while True:
             if first_run:
-              reactmoji = ["⏸","▶️"]
+              reactmoji = ["⏸","▶️","⏩","🎶",'🔊']
               for react in reactmoji:
                           await msg.add_reaction(react)
 
@@ -489,6 +445,27 @@ class Music(commands.Cog):
               elif '▶️' in str(res.emoji):
                       print('<<resumed>>')
                       ctx.voice_client.resume()
+
+              elif '⏩' in str(res.emoji):
+                      print('<<skipped>>')                      
+                      if not vc or not vc.is_connected():
+                          embed = discord.Embed(title="", description="I'm not connected to a voice channel", color=0xF8C514)
+                          return await ctx.send(embed=embed)
+
+                      if vc.is_paused():
+                          pass
+                      elif not vc.is_playing():
+                          return
+
+                      vc.stop()     
+
+              elif '🎶' in str(res.emoji):
+                      print('<<Displaying queue>>')                      
+                      await ctx.invoke(self.queue_info)
+
+              elif '🔊' in str(res.emoji):
+                      print('<<Displaying volume>>')                      
+                      await ctx.invoke(self.change_volume)             
                       
     @commands.command(name='volume', aliases=['vol', 'v'])
     async def change_volume(self, ctx, *, vol: float=None):

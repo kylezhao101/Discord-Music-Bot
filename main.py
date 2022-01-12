@@ -14,7 +14,6 @@ client = commands.Bot(command_prefix='??',
 async def on_ready():
     print("Bot is ready.")
 
-
 # Custom Help commands ------------------------------------------------------------------
 client.remove_command("help")
 
