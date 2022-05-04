@@ -70,5 +70,3 @@ playfavourites <range>
     e.g. ??pf 1,5
       plays all songs from 1 to 5
 ```
-
-![https://imgur.com/a/Wxr1wVx](https://i.imgur.com/QQ6W1YI.jpg)
