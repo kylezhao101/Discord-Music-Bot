@@ -21,16 +21,6 @@ cluster = MongoClient(os.environ['mongoURL'])
 db = cluster["qwiooData"]
 collection = db["userData"]
 
-
-# spotiy modules
-from spotipy.oauth2 import SpotifyClientCredentials
-import spotipy
-import psutil
-import platform
-
-# ??
-from progress.bar import Bar
-
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
 
